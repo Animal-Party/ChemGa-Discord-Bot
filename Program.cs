@@ -8,7 +8,7 @@ using ChemGa.Core.Common.Utils;
 using Serilog.Events;
 using Microsoft.Extensions.DependencyInjection;
 using ChemGa.Database;
-using System.Reflection;
+using ChemGa;
 
 internal sealed class Program
 {
