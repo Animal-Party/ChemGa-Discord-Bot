@@ -6,11 +6,14 @@ using dotenv.net;
 using Serilog;
 using ChemGa.Core.Common.Utils;
 using Serilog.Events;
-using Npgsql.Replication;
+using Microsoft.Extensions.DependencyInjection;
+using ChemGa.Database;
+using System.Reflection;
 
 internal sealed class Program
 {
     private static DiscordSocketClient? Client { get; set; }
+    private static readonly IServiceProvider _serviceProvider = ConfigureServices();
     public static void Main(string[] args) => MainAsync(args).GetAwaiter().GetResult();
     private static async Task MainAsync(string[] args)
     {
@@ -18,19 +21,14 @@ internal sealed class Program
         {
             LoadConfig();
 
-            Client = new DiscordSocketClient(new DiscordSocketConfig
-            {
-                LogLevel = LogSeverity.Info,
-                MessageCacheSize = 100,
-                GatewayIntents = GatewayIntents.MessageContent | GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.GuildMessageReactions | GatewayIntents.DirectMessages
-            });
-
+            Client = _serviceProvider.GetRequiredService<DiscordSocketClient>();
 
             await Client.LoginAsync(TokenType.Bot, Environment.GetEnvironmentVariable("DISCORD_BOT_TOKEN"));
             await Client.StartAsync();
 
-            var commands = new CommandService();
-            using var router = new CommandRouter(Client, commands, services: null, prefix: "!");
+            _ = _serviceProvider.GetRequiredService<CommandService>();
+
+            var router = _serviceProvider.GetRequiredService<CommandRouter>();
             await LoadCommands(router);
 
             Client.Ready += () =>
@@ -51,6 +49,35 @@ internal sealed class Program
                 await Client.StopAsync();
             Client?.Dispose();
         }
+    }
+
+    public static ServiceProvider ConfigureServices()
+    {
+        var discordConfig = new DiscordSocketConfig
+        {
+            LogLevel = LogSeverity.Info,
+            MessageCacheSize = 100,
+            GatewayIntents = GatewayIntents.MessageContent | GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.GuildMessageReactions | GatewayIntents.DirectMessages
+        };
+
+        return new ServiceCollection()
+            .AddDbContext<AppDatabase>()
+            .AddAttributedServices(typeof(Program).Assembly)
+            .AddSingleton(discordConfig)
+            .AddSingleton(sp => new DiscordSocketClient(sp.GetRequiredService<DiscordSocketConfig>()))
+            .AddSingleton(sp => new CommandService(new CommandServiceConfig
+            {
+                LogLevel = LogSeverity.Info,
+                DefaultRunMode = RunMode.Async
+            }))
+            .AddSingleton(sp => new CommandRouter(
+                    sp.GetRequiredService<DiscordSocketClient>(),
+                    sp.GetRequiredService<CommandService>(),
+                    services: sp,
+                    prefix: "!"
+                )
+            )
+            .BuildServiceProvider();
     }
 
     private static void LoadConfig()
