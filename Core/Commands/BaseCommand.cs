@@ -4,13 +4,17 @@ using ChemGa.Core.Handler;
 using Discord;
 using Discord.Commands;
 using ChemGa.Core.Interfaces;
+using Discord.WebSocket;
 
 namespace ChemGa.Core.Commands;
 
 public abstract class BaseCommand : ModuleBase<SocketCommandContext>
 {
-    protected BaseCommand()
+    private readonly DiscordSocketClient? _client;
+    protected BaseCommand(DiscordSocketClient? client)
     {
+        _client = client;
+
         var type = GetType();
         var classMeta = type.GetCustomAttribute<CommandMetaAttribute>();
 
@@ -68,7 +72,7 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
         var userPerms = new HashSet<GuildPermission>();
         var botPerms = new HashSet<GuildPermission>();
 
-        object[] allAttrs = (type.GetCustomAttributes(true).Cast<object>()).Concat(method?.GetCustomAttributes(true).Cast<object>() ?? Enumerable.Empty<object>()).ToArray();
+        object[] allAttrs = type.GetCustomAttributes(true).Cast<object>().Concat(method?.GetCustomAttributes(true).Cast<object>() ?? Enumerable.Empty<object>()).ToArray();
 
         foreach (var a in allAttrs)
         {
