@@ -9,6 +9,7 @@ using Serilog.Events;
 using Microsoft.Extensions.DependencyInjection;
 using ChemGa.Database;
 using ChemGa;
+using Microsoft.EntityFrameworkCore;
 
 internal sealed class Program
 {
@@ -19,9 +20,10 @@ internal sealed class Program
     {
         try
         {
-            // var appDB = _serviceProvider.GetRequiredService<AppDatabase>();
-
             LoadConfig();
+
+            var appDB = _serviceProvider.GetRequiredService<AppDatabase>();
+            appDB.Database.Migrate();
 
             Client = _serviceProvider.GetRequiredService<DiscordSocketClient>();
 
@@ -33,6 +35,14 @@ internal sealed class Program
             var router = _serviceProvider.GetRequiredService<CommandRouter>();
             await LoadCommands(router);
 
+            var activator = _serviceProvider.GetRequiredService<ServiceActivator>();
+            await activator.StartAllAsync();
+            AppDomain.CurrentDomain.ProcessExit += async (_, _) =>
+            {
+                await activator.StopAllAsync();
+                Log.Information("Process exiting, all services stopped.");
+            };
+
             Client.Ready += () =>
             {
                 Log.Information($"Connected as {Client.CurrentUser.Username}#{Client.CurrentUser.Discriminator} ({Client.CurrentUser.Id})");
@@ -40,6 +50,11 @@ internal sealed class Program
             };
 
             Client.Log += LogAsync;
+
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            {
+                Log.Fatal(e.ExceptionObject as Exception, "Unhandled exception occurred: {exeption}");
+            };
 
             await Task.Delay(Timeout.Infinite);
 
@@ -70,7 +85,7 @@ internal sealed class Program
             .AddSingleton(sp => new CommandService(new CommandServiceConfig
             {
                 LogLevel = LogSeverity.Info,
-                DefaultRunMode = RunMode.Async
+                DefaultRunMode = RunMode.Async,
             }))
             .AddSingleton(sp => new CommandRouter(
                     sp.GetRequiredService<DiscordSocketClient>(),

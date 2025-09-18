@@ -3,6 +3,7 @@ using ChemGa.Core.Common.Attributes;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace ChemGa;
+
 public static class Global
 {
     public static string ToTitleCase(this string str)
@@ -25,6 +26,17 @@ public static class ServiceCollectionExtensions
             var serviceType = attr.ServiceType ?? type;
 
             services.Add(new ServiceDescriptor(serviceType, type, attr.Lifetime));
+
+            var interfaces = type.GetInterfaces()
+                .Where(i => i != typeof(IDisposable));
+
+            foreach (var iface in interfaces)
+            {
+                if (!services.Any(sd => sd.ServiceType == iface && sd.ImplementationType == type))
+                {
+                    services.Add(new ServiceDescriptor(iface, type, attr.Lifetime));
+                }
+            }
         }
 
         return services;

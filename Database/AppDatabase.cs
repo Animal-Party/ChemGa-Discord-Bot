@@ -1,22 +1,31 @@
 using System.Reflection;
+using dotenv.net;
 using Microsoft.EntityFrameworkCore;
+using Serilog;
+using Serilog.Extensions.Logging;
 
 namespace ChemGa.Database;
 
 
-internal sealed class AppDatabase : DbContext
+public sealed class AppDatabase : DbContext
 {
     public AppDatabase()
     {
-        Database.EnsureCreated();
-        Database.Migrate();
+        DotEnv.Load();
     }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         optionsBuilder
             .EnableThreadSafetyChecks()
-            .UseNpgsql(ConnectionString());
+            .EnableDetailedErrors()
+            .EnableSensitiveDataLogging(false)
+            .UseNpgsql(ConnectionString(), opts =>
+            {
+                opts.EnableRetryOnFailure(5, TimeSpan.FromSeconds(10), null);
+                opts.CommandTimeout(30);
+                opts.MigrationsAssembly(Assembly.GetExecutingAssembly().FullName);
+            });
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -33,12 +42,17 @@ internal sealed class AppDatabase : DbContext
         foreach (var entityType in entityTypes)
         {
             modelBuilder.Entity(entityType);
-            Console.WriteLine($"[AppDatabase] Registered entity: {entityType.FullName}");
+            Log.Information("[{Source}] Registered entity: {entityType}", nameof(AppDatabase), entityType.Name.ToLower());
         }
 
+        foreach (var entity in modelBuilder.Model.GetEntityTypes())
+        {
+            entity.SetTableName(entity.GetTableName()?.ToLower());
+        }
         base.OnModelCreating(modelBuilder);
     }
-    private static string ConnectionString() => $"Host={Environment.GetEnvironmentVariable("HOST")};Port={Environment.GetEnvironmentVariable("PORT")};Database={Environment.GetEnvironmentVariable("DB_NAME")};Username=${Environment.GetEnvironmentVariable("USER")};Password={Environment.GetEnvironmentVariable("PASSWORD")};Pooling=true;";
+    private static string ConnectionString() =>
+        $"Host={Environment.GetEnvironmentVariable("HOST") ?? "localhost"};Port={Environment.GetEnvironmentVariable("PORT") ?? "5432"};Database={Environment.GetEnvironmentVariable("DB_NAME") ?? "main"};Username={Environment.GetEnvironmentVariable("USER")};Password={Environment.GetEnvironmentVariable("PASSWORD")};Pooling=true;";
 
     // Ví dụ: Định nghĩa các DbSet với Attribute ở file khác
     // [DbSet]

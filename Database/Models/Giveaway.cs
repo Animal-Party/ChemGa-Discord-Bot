@@ -1,15 +1,22 @@
+using Microsoft.EntityFrameworkCore;
+using ChemGa.Database.Utils;
+using System.ComponentModel.DataAnnotations;
+
 namespace ChemGa.Database.Models;
 
 
 [DbSet]
+[Index(nameof(MessageId), IsUnique = true)]
+[PrimaryKey(nameof(Id))]
 public class Giveaway
 {
-    public int Id { get; set; }
+    [MaxLength(36)]
+    public string Id { get; set; } = UuidV7.NewString();
     public ulong GuildId { get; set; }
-    public ulong ChannelId { get; set; }
+    [Required] public ulong ChannelId { get; set; }
     public ulong MessageId { get; set; }
-    public ulong HostId { get; set; }
-    public string Prize { get; set; } = string.Empty;
+    [Required] public ulong HostId { get; set; }
+    [Required] public string Prize { get; set; } = string.Empty;
     public DateTime StartAt { get; set; }
     public DateTime EndAt { get; set; }
     public int WinnerCount { get; set; }
