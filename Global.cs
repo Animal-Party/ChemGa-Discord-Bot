@@ -53,3 +53,7 @@ public static class DiscordSocketClientExtensions
             .WithColor(Color.TryParse("#aed7f3", out Color color) ? color : Color.Magenta);
     }
 }
+public static partial class GlobalDev
+{
+    public static readonly ulong[] DevIds = [1216638785463390299UL];
+}

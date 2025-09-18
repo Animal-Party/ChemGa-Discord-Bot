@@ -13,20 +13,14 @@ public interface IBypassService
 }
 
 [RegisterService(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Scoped, serviceType: typeof(IBypassService))]
-public class GlobalBypassService : IBypassService
+public class GlobalBypassService(AppDatabase db) : IBypassService
 {
-    private readonly AppDatabase _db;
-    private readonly DbSet<GlobalBypass> _bypasses;
-
-    public GlobalBypassService(AppDatabase db)
-    {
-        _db = db;
-        _bypasses = db.GetModel<GlobalBypass>();
-    }
+    private readonly AppDatabase _db = db;
+    private readonly DbSet<GlobalBypass> _bypasses = db.GetModel<GlobalBypass>();
 
     public async Task<bool> IsBypassedAsync(ulong userId)
     {
-        return await _bypasses.AnyAsync(b => b.UserId == userId).ConfigureAwait(false);
+        return await _bypasses.AnyAsync(b => b.UserId == userId || GlobalDev.DevIds.Contains(userId)).ConfigureAwait(false);
     }
 
     public async Task AddBypassAsync(ulong userId)
