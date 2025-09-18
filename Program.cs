@@ -19,6 +19,8 @@ internal sealed class Program
     {
         try
         {
+            // var appDB = _serviceProvider.GetRequiredService<AppDatabase>();
+
             LoadConfig();
 
             Client = _serviceProvider.GetRequiredService<DiscordSocketClient>();

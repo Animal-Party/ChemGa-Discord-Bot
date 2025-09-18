@@ -3,7 +3,7 @@ using ChemGa.Core.Common.Attributes;
 using ChemGa.Core.Handler;
 using Discord;
 using Discord.Commands;
-using ChemGa.Core.Interfaces;
+using ChemGa.Interfaces;
 using Discord.WebSocket;
 
 namespace ChemGa.Core.Commands;

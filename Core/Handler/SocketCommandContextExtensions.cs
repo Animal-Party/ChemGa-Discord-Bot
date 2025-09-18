@@ -1,7 +1,5 @@
-using System.Collections.Generic;
-using ChemGa.Core.Interfaces;
+using ChemGa.Interfaces;
 using Discord.Commands;
-using Discord.WebSocket;
 
 namespace ChemGa.Core.Handler;
 

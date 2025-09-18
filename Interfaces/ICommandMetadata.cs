@@ -1,6 +1,6 @@
 using Discord;
 
-namespace ChemGa.Core.Interfaces;
+namespace ChemGa.Interfaces;
 
 public interface IRequirePermission
 {

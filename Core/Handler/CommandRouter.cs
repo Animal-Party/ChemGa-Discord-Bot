@@ -3,6 +3,11 @@ using Discord;
 using Discord.Commands;
 using Discord.WebSocket;
 using ChemGa.Core.Common.Attributes;
+using Serilog;
+using System.Text.RegularExpressions;
+using Microsoft.Extensions.DependencyInjection;
+using Discord.Rest;
+using System.Net.Sockets;
 
 namespace ChemGa.Core.Handler;
 
@@ -38,7 +43,6 @@ public sealed class CommandRouter(
     public Task StartAsync()
     {
         if (_started) return Task.CompletedTask;
-        Console.WriteLine($"CommandRouter starting with prefix '{_prefix}'");
         _client.MessageReceived += OnMessageReceivedAsync;
         _commands.CommandExecuted += OnCommandExecutedAsync;
         _started = true;
@@ -71,37 +75,106 @@ public sealed class CommandRouter(
 
         if (!result.IsSuccess)
         {
-            if (result.Error != CommandError.UnknownCommand)
-            {
-                var reason = string.IsNullOrEmpty(result.ErrorReason) ? result.Error.ToString() : result.ErrorReason;
-                await context.Channel.SendMessageAsync($"Command error: {reason}").ConfigureAwait(false);
-            }
+            await HandleCommandErrorAsync(context, result).ConfigureAwait(false);
         }
     }
+    private static async Task HandleCommandErrorAsync(SocketCommandContext? context, IResult result)
+    {
+        if (context is null) return;
 
+        if (result.Error == CommandError.UnknownCommand) return;
+
+        RestUserMessage? sent = null;
+
+        if (await HandleCommandCooldownError(context, result, sent).ConfigureAwait(false))
+            return;
+
+        var reason = string.IsNullOrEmpty(result.ErrorReason) ? result.Error.ToString() : result.ErrorReason;
+        try
+        {
+            sent = await context.Channel.SendMessageAsync($"Error: {reason}").ConfigureAwait(false);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                    await sent.DeleteAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Failed to delete error message");
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Error while handling command error message");
+        }
+        
+    }
+    private static async Task<bool> HandleCommandCooldownError(SocketCommandContext context, IResult result, RestUserMessage? sent)
+    {
+        if (result.Error == CommandError.UnknownCommand) return false;
+        var reason = string.IsNullOrEmpty(result.ErrorReason) ? result.Error.ToString() : result.ErrorReason;
+        try
+        {
+            if (string.IsNullOrEmpty(reason) || !reason.StartsWith("__COOLDOWN__:", StringComparison.OrdinalIgnoreCase)) return false;
+
+            var parts = reason.Split(':', 2);
+            if (parts.Length == 2 && int.TryParse(parts[1], out var waitSeconds) && waitSeconds > 0)
+            {
+                sent = await context.Channel.SendMessageAsync($"Command is on cooldown. Try again in {waitSeconds} seconds.").ConfigureAwait(false);
+                var delay = TimeSpan.FromSeconds(Math.Max(1, waitSeconds));
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(delay).ConfigureAwait(false);
+                        await sent.DeleteAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning(ex, "Failed to delete cooldown error message");
+                    }
+                });
+            }
+
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Error while handling command Cooldown error message");
+            return false;
+        }
+        return true;
+    }
     private Task OnCommandExecutedAsync(Optional<CommandInfo> commandOpt, ICommandContext context, IResult result)
     {
         try
         {
-            if (!commandOpt.IsSpecified) return Task.CompletedTask;
             var command = commandOpt.Value;
+            var methodCooldown = command.Preconditions.OfType<CooldownAttribute>().FirstOrDefault();
 
-            if (!result.IsSuccess) return Task.CompletedTask;
+            var typeCooldown = command.Module?.Preconditions.OfType<CooldownAttribute>().FirstOrDefault();
 
-            var methodCooldown = command.Attributes.OfType<PreconditionAttribute>()
-                .OfType<CooldownAttribute>().FirstOrDefault();
-
-            var typeCooldown = command.Module?.GetType().GetCustomAttributes(typeof(CooldownAttribute), true)
-                .OfType<CooldownAttribute>().FirstOrDefault();
-
-            var cooldown = methodCooldown ?? typeCooldown;
+            var cooldown = typeCooldown ?? methodCooldown;
             if (cooldown is not null)
             {
-                CooldownManager.SetCooldown(cooldown.Scope, context, command.Name, cooldown.Seconds);
+                var cm = _services?.GetRequiredService<CooldownManager>();
+                cm?.SetCooldown(cooldown.Scope, context, command.Name, cooldown.Seconds);
+
             }
         }
-        catch
-        { }
+        finally
+        {
+            Log.Information("Command {Command} executed by {User} in {Channel} with result: {Result}",
+                commandOpt.IsSpecified ? commandOpt.Value.Name : "<unknown>",
+                context.User.Username,
+                context.Channel.Name,
+                result.IsSuccess ? "Success" : $"Error: {result.Error} - {result.ErrorReason}"
+            );
+        }
+
+
 
         return Task.CompletedTask;
     }

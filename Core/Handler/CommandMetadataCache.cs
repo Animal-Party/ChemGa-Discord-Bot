@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using ChemGa.Core.Interfaces;
+using ChemGa.Interfaces;
 namespace ChemGa.Core.Handler;
 
 /// <summary>

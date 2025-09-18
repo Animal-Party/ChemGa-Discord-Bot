@@ -38,10 +38,6 @@ internal sealed class AppDatabase : DbContext
 
         base.OnModelCreating(modelBuilder);
     }
-
-    private static AppDatabase? _instance;
-    public static AppDatabase UseDatabase => _instance ??= new AppDatabase();
-
     private static string ConnectionString() => $"Host={Environment.GetEnvironmentVariable("HOST")};Port={Environment.GetEnvironmentVariable("PORT")};Database={Environment.GetEnvironmentVariable("DB_NAME")};Username=${Environment.GetEnvironmentVariable("USER")};Password={Environment.GetEnvironmentVariable("PASSWORD")};Pooling=true;";
 
     // Ví dụ: Định nghĩa các DbSet với Attribute ở file khác

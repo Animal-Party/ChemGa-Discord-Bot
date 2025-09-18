@@ -1,5 +1,6 @@
 using ChemGa.Core.Handler;
 using Discord.Commands;
+using Serilog;
 
 namespace ChemGa.Core.Common.Attributes;
 
@@ -10,7 +11,7 @@ public enum CooldownScope
     Global
 }
 
-[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false)]
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = true, Inherited = true)]
 public sealed class CooldownAttribute(int seconds, CooldownScope scope = CooldownScope.User) : PreconditionAttribute
 {
     public int Seconds { get; } = Math.Max(0, seconds);
@@ -20,9 +21,19 @@ public sealed class CooldownAttribute(int seconds, CooldownScope scope = Cooldow
     {
         if (Seconds <= 0) return Task.FromResult(PreconditionResult.FromSuccess());
 
-        if (CooldownManager.TryGetRemaining(Scope, context, command.Name, out var remaining))
+        if (services is null)
+            return Task.FromResult(PreconditionResult.FromSuccess());
+
+        if (services.GetService(typeof(CooldownManager)) is not CooldownManager cooldownManager)
         {
-            return Task.FromResult(PreconditionResult.FromError($"Command is on cooldown. Try again in {Math.Ceiling(remaining.TotalSeconds)} seconds."));
+            Log.Warning("CooldownManager service not available from IServiceProvider. Skipping cooldown check for command {Command}.", command.Name);
+            return Task.FromResult(PreconditionResult.FromSuccess());
+        }
+
+        if (cooldownManager.TryGetRemaining(Scope, context, command.Name, out var remaining))
+        {
+            var remainingSeconds = (int)Math.Ceiling(remaining.TotalSeconds);
+            return Task.FromResult(PreconditionResult.FromError($"__COOLDOWN__:{remainingSeconds}"));
         }
 
         return Task.FromResult(PreconditionResult.FromSuccess());

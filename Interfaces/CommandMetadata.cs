@@ -2,7 +2,7 @@ using System.Reflection;
 using Discord;
 using Discord.Commands;
 
-namespace ChemGa.Core.Interfaces;
+namespace ChemGa.Interfaces;
 
 public record PermissionRequirement(
     GuildPermission[] UserPermissions,

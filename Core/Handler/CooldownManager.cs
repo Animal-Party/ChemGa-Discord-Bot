@@ -1,7 +1,6 @@
-using System;
 using System.Collections.Concurrent;
 using Discord.Commands;
-using Discord.WebSocket;
+using Serilog;
 using ChemGa.Core.Common.Attributes;
 
 namespace ChemGa.Core.Handler;
@@ -10,11 +9,12 @@ namespace ChemGa.Core.Handler;
 /// Central cooldown store used by the router and CooldownAttribute.
 /// Thread-safe, in-memory. Keyed by scope+command+entity id.
 /// </summary>
-public static class CooldownManager
+[RegisterService(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Singleton, serviceType: typeof(CooldownManager))]
+public class CooldownManager
 {
     private static readonly ConcurrentDictionary<string, DateTime> _expiries = new();
 
-    private static string BuildKey(CooldownScope scope, ICommandContext context, string commandName)
+    private string BuildKey(CooldownScope scope, ICommandContext context, string commandName)
     {
         return scope switch
         {
@@ -27,7 +27,7 @@ public static class CooldownManager
     /// <summary>
     /// Attempts to get remaining cooldown time. Returns true if a cooldown is active.
     /// </summary>
-    public static bool TryGetRemaining(CooldownScope scope, ICommandContext context, string commandName, out TimeSpan remaining)
+    public bool TryGetRemaining(CooldownScope scope, ICommandContext context, string commandName, out TimeSpan remaining)
     {
         remaining = TimeSpan.Zero;
         var now = DateTime.UtcNow;
@@ -43,10 +43,11 @@ public static class CooldownManager
     /// <summary>
     /// Sets a cooldown expiry for the command.
     /// </summary>
-    public static void SetCooldown(CooldownScope scope, ICommandContext context, string commandName, int seconds)
+    public void SetCooldown(CooldownScope scope, ICommandContext context, string commandName, int seconds)
     {
         if (seconds <= 0) return;
         var key = BuildKey(scope, context, commandName);
-        _expiries[key] = DateTime.UtcNow.AddSeconds(seconds);
+        var expiry = DateTime.UtcNow.AddSeconds(seconds);
+        _expiries[key] = expiry;
     }
 }
