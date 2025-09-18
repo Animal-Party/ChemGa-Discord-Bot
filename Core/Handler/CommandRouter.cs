@@ -4,10 +4,8 @@ using Discord.Commands;
 using Discord.WebSocket;
 using ChemGa.Core.Common.Attributes;
 using Serilog;
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.DependencyInjection;
 using Discord.Rest;
-using System.Net.Sockets;
 
 namespace ChemGa.Core.Handler;
 
@@ -110,7 +108,7 @@ public sealed class CommandRouter(
         {
             Log.Warning(ex, "Error while handling command error message");
         }
-        
+
     }
     private static async Task<bool> HandleCommandCooldownError(SocketCommandContext context, IResult result, RestUserMessage? sent)
     {
@@ -149,11 +147,11 @@ public sealed class CommandRouter(
     }
     private Task OnCommandExecutedAsync(Optional<CommandInfo> commandOpt, ICommandContext context, IResult result)
     {
+        if (!commandOpt.IsSpecified) return Task.CompletedTask;
         try
         {
             var command = commandOpt.Value;
             var methodCooldown = command.Preconditions.OfType<CooldownAttribute>().FirstOrDefault();
-
             var typeCooldown = command.Module?.Preconditions.OfType<CooldownAttribute>().FirstOrDefault();
 
             var cooldown = typeCooldown ?? methodCooldown;
@@ -161,7 +159,6 @@ public sealed class CommandRouter(
             {
                 var cm = _services?.GetRequiredService<CooldownManager>();
                 cm?.SetCooldown(cooldown.Scope, context, command.Name, cooldown.Seconds);
-
             }
         }
         finally
@@ -173,8 +170,6 @@ public sealed class CommandRouter(
                 result.IsSuccess ? "Success" : $"Error: {result.Error} - {result.ErrorReason}"
             );
         }
-
-
 
         return Task.CompletedTask;
     }

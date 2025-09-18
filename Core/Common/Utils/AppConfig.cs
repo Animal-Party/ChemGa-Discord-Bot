@@ -27,4 +27,9 @@ public static class AppConfig
     {
         return Path.Combine(AppContext.BaseDirectory, "appsettings.json");
     }
+
+    public static string GetPrefix()
+    {
+        return AppSettings["Properties:Prefix"] ?? "c";
+    }
 }

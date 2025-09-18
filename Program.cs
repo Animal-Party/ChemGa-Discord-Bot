@@ -76,7 +76,7 @@ internal sealed class Program
                     sp.GetRequiredService<DiscordSocketClient>(),
                     sp.GetRequiredService<CommandService>(),
                     services: sp,
-                    prefix: "!"
+                    prefix: AppConfig.GetPrefix()
                 )
             )
             .BuildServiceProvider();
