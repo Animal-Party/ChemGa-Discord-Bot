@@ -5,15 +5,20 @@ using Discord;
 using Discord.Commands;
 using ChemGa.Interfaces;
 using Discord.WebSocket;
+using Serilog;
 
 namespace ChemGa.Core.Commands;
 
 public abstract class BaseCommand : ModuleBase<SocketCommandContext>
 {
     private readonly DiscordSocketClient? _client;
+    private readonly ILogger? _logger;
+    private static readonly TimeSpan DefaultTempTtl = TimeSpan.FromSeconds(5);
     protected BaseCommand(DiscordSocketClient? client)
     {
         _client = client;
+        // try to resolve a logger from DI if available via static Log
+        _logger = Log.Logger;
 
         var type = GetType();
         var classMeta = type.GetCustomAttribute<CommandMetaAttribute>();
@@ -191,6 +196,178 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
         );
 
         CommandMetadataCache.TryAdd(name, _commandInfo);
+    }
+
+    /// <summary>
+    /// Reply to the current command context with a temporary message that will be deleted after <paramref name="ttl"/>.
+    /// Returns the sent message or null if sending failed.
+    /// </summary>
+    protected async Task<IUserMessage?> TempReplyAsync(string text, TimeSpan ttl)
+    {
+        try
+        {
+            var msg = await ReplyAsync(text).ConfigureAwait(false) as IUserMessage;
+            if (msg == null) return null;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(ttl).ConfigureAwait(false);
+                    await msg.DeleteAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.Warning(ex, "Failed to delete TempReply message");
+                }
+            });
+
+            return msg;
+        }
+        catch (Exception ex)
+        {
+            _logger?.Warning(ex, "Failed to send TempReply");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Send a temporary message to the specified channel that will be deleted after <paramref name="ttl"/>.
+    /// Returns the sent message or null if sending failed.
+    /// </summary>
+    protected async Task<IUserMessage?> TempSendAsync(IMessageChannel channel, string text, TimeSpan ttl)
+    {
+        if (channel == null) throw new ArgumentNullException(nameof(channel));
+        try
+        {
+            var msg = await channel.SendMessageAsync(text).ConfigureAwait(false) as IUserMessage;
+            if (msg == null) return null;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(ttl).ConfigureAwait(false);
+                    await msg.DeleteAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.Warning(ex, "Failed to delete TempSend message");
+                }
+            });
+
+            return msg;
+        }
+        catch (Exception ex)
+        {
+            _logger?.Warning(ex, "Failed to send TempSend");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reply to the current command context with the same parameters as <see cref="ReplyAsync(string?, bool, Embed?, RequestOptions?)"/> and delete after <paramref name="ttl"/>.
+    /// If <paramref name="ttl"/> is omitted a default of 5 seconds will be used.
+    /// </summary>
+    protected async Task<IUserMessage?> TempReplyAsync(
+        string? text = null,
+        bool isTTS = false,
+        Embed? embed = null,
+        RequestOptions? options = null,
+        AllowedMentions? allowedMentions = null,
+        MessageReference? messageReference = null,
+        MessageComponent? components = null,
+        TimeSpan ttl = default)
+    {
+        var effectiveTtl = ttl == default ? DefaultTempTtl : ttl;
+        try
+        {
+            IUserMessage? sent = null;
+
+            // If advanced params are provided, use Channel.SendMessageAsync to pass them through
+            if (allowedMentions != null || messageReference != null || components != null)
+            {
+                var ch = Context?.Channel as IMessageChannel;
+                if (ch == null)
+                {
+                    _logger?.Warning("Context channel not available for TempReply (advanced)");
+                    return null;
+                }
+
+                sent = await ch.SendMessageAsync(text, isTTS, embed, options, allowedMentions, messageReference, components).ConfigureAwait(false) as IUserMessage;
+            }
+            else
+            {
+                sent = await ReplyAsync(text, isTTS, embed, options).ConfigureAwait(false) as IUserMessage;
+            }
+
+            if (sent == null) return null;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(effectiveTtl).ConfigureAwait(false);
+                    await sent.DeleteAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.Warning(ex, "Failed to delete TempReply (overload) message");
+                }
+            });
+
+            return sent;
+        }
+        catch (Exception ex)
+        {
+            _logger?.Warning(ex, "Failed to send TempReply (overload)");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Send a temporary message to the specified channel with the same parameters as <see cref="IMessageChannel.SendMessageAsync(string?, bool, Embed?, RequestOptions?)"/> and delete after <paramref name="ttl"/>.
+    /// If <paramref name="ttl"/> is omitted a default of 5 seconds will be used.
+    /// </summary>
+    protected async Task<IUserMessage?> TempSendAsync(IMessageChannel channel, string? text = null, bool isTTS = false, Embed? embed = null, RequestOptions? options = null, AllowedMentions? allowedMentions = null, MessageReference? messageReference = null, MessageComponent? components = null, TimeSpan ttl = default)
+    {
+        if (channel == null) throw new ArgumentNullException(nameof(channel));
+        var effectiveTtl = ttl == default ? DefaultTempTtl : ttl;
+        try
+        {
+            var sent = await channel.SendMessageAsync(text, isTTS, embed, options, allowedMentions, messageReference, components).ConfigureAwait(false) as IUserMessage;
+            if (sent == null) return null;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(effectiveTtl).ConfigureAwait(false);
+                    await sent.DeleteAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.Warning(ex, "Failed to delete TempSend (overload) message");
+                }
+            });
+
+            return sent;
+        }
+        catch (Exception ex)
+        {
+            _logger?.Warning(ex, "Failed to send TempSend (overload)");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Convenience overload that sends a temporary message to the current command context's channel.
+    /// </summary>
+    protected Task<IUserMessage?> TempSendAsync(string? text = null, bool isTTS = false, Embed? embed = null, RequestOptions? options = null, TimeSpan ttl = default)
+    {
+        var ch = Context?.Channel as IMessageChannel;
+        if (ch == null) throw new InvalidOperationException("Command context channel is not available or not an IMessageChannel.");
+        return TempSendAsync(ch, text, isTTS, embed, options, allowedMentions: null, messageReference: null, components: null, ttl: ttl);
     }
 
 }

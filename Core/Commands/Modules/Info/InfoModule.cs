@@ -55,7 +55,7 @@ public class InfoModule(DiscordSocketClient client) : BaseCommand(client)
             CommandMetadataCache.TryGet(commandName, out var cmdMeta);
             if (cmdMeta is null)
             {
-                await ReplyAsync($"No command found with the name or alias '{commandName}'.");
+                await TempReplyAsync($"No command found with the name or alias '{commandName}'.");
                 return;
             }
 

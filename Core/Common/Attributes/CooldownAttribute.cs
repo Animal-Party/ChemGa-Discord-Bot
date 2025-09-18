@@ -21,6 +21,9 @@ public sealed class CooldownAttribute(int seconds, CooldownScope scope = Cooldow
     {
         if (Seconds <= 0) return Task.FromResult(PreconditionResult.FromSuccess());
 
+        if (command.Attributes.Any(attr => attr is SkipCooldownAttribute))
+            return Task.FromResult(PreconditionResult.FromSuccess());
+
         if (services is null)
             return Task.FromResult(PreconditionResult.FromSuccess());
 
@@ -29,6 +32,17 @@ public sealed class CooldownAttribute(int seconds, CooldownScope scope = Cooldow
             Log.Warning("CooldownManager service not available from IServiceProvider. Skipping cooldown check for command {Command}.", command.Name);
             return Task.FromResult(PreconditionResult.FromSuccess());
         }
+
+        // Allow global bypass to skip cooldowns
+        try
+        {
+            if (services?.GetService(typeof(Services.IBypassService)) is Services.IBypassService bypass)
+            {
+                var isBypassed = bypass.IsBypassedAsync(context.User.Id).GetAwaiter().GetResult();
+                if (isBypassed) return Task.FromResult(PreconditionResult.FromSuccess());
+            }
+        }
+        catch { }
 
         if (cooldownManager.TryGetRemaining(Scope, context, command.Name, out var remaining))
         {
@@ -39,3 +53,7 @@ public sealed class CooldownAttribute(int seconds, CooldownScope scope = Cooldow
         return Task.FromResult(PreconditionResult.FromSuccess());
     }
 }
+
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
+public sealed class SkipCooldownAttribute : Attribute
+{ }

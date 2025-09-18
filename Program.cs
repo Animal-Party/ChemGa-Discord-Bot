@@ -36,17 +36,17 @@ internal sealed class Program
             await LoadCommands(router);
 
             var activator = _serviceProvider.GetRequiredService<ServiceActivator>();
-            await activator.StartAllAsync();
+
             AppDomain.CurrentDomain.ProcessExit += async (_, _) =>
             {
                 await activator.StopAllAsync();
                 Log.Information("Process exiting, all services stopped.");
             };
 
-            Client.Ready += () =>
+            Client.Ready += async () =>
             {
+                await activator.StartAllAsync().ConfigureAwait(false);
                 Log.Information($"Connected as {Client.CurrentUser.Username}#{Client.CurrentUser.Discriminator} ({Client.CurrentUser.Id})");
-                return Task.CompletedTask;
             };
 
             Client.Log += LogAsync;

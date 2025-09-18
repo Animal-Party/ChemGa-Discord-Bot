@@ -121,7 +121,7 @@ public sealed class CommandRouter(
             var parts = reason.Split(':', 2);
             if (parts.Length == 2 && int.TryParse(parts[1], out var waitSeconds) && waitSeconds > 0)
             {
-                sent = await context.Channel.SendMessageAsync($"Command is on cooldown. Try again in {waitSeconds} seconds.").ConfigureAwait(false);
+                sent = await context.Channel.SendMessageAsync($"Oi oi oi! Chậm lại nào cô bé, chờ <R:{waitSeconds}:> đê~.").ConfigureAwait(false);
                 var delay = TimeSpan.FromSeconds(Math.Max(1, waitSeconds));
                 _ = Task.Run(async () =>
                 {

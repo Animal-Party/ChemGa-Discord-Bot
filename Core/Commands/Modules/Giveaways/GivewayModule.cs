@@ -1,4 +1,5 @@
 using ChemGa.Core.Common.Attributes;
+using Discord;
 using Discord.Commands;
 using Discord.WebSocket;
 
@@ -6,56 +7,57 @@ namespace ChemGa.Core.Commands.Modules.Giveaways;
 
 [CommandMeta]
 [Cooldown(2, CooldownScope.Guild)]
-[RequireBotPermission(Discord.GuildPermission.ManageMessages)]
-[RequireUserPermission(Discord.GuildPermission.ManageMessages)]
+[RequireBotPermissionEx(GuildPermission.ManageMessages)]
+[RequireUserPermissionEx(GuildPermission.ManageMessages)]
 [RequireRoleEx(1417541384696631356, ErrorMessage = "Bạn cần có vai trò **`{roleName}`** để sử dụng lệnh này!")]
 public class GiveawayModule(DiscordSocketClient? _client, GiveawayService giveawayService) : BaseCommand(_client)
 {
+    private static readonly int MAX_GIVEAWAYS_PER_GUILD = 20;
+
     [Command("giveaway-start", RunMode = RunMode.Async)]
-    [Alias("gstart", "gcreate")]
+    [Alias("gstart", "gcreate", "ga")]
     [Summary("Bắt đầu một giveaway mới.")]
+    [SkipCooldown]
     public async Task StartGiveawayAsync(string duration, int winnerCount, [Remainder] string prize)
     {
         if (!TryParseDuration(duration, out var timeSpan))
         {
-            await ReplyAsync("Định dạng thời gian không hợp lệ. Vui lòng sử dụng định dạng như `10m`, `2h`, `1d`.");
+            await TempReplyAsync("Định dạng thời gian không hợp lệ. Vui lòng sử dụng định dạng như `10m`, `2h`, `1d`.");
+            return;
+        }
+
+        if (timeSpan < TimeSpan.FromSeconds(10) || timeSpan > TimeSpan.FromDays(7))
+        {
+            await TempReplyAsync("Thời lượng giveaway phải từ 10 giây đến 7 ngày.");
             return;
         }
 
         if (winnerCount <= 0)
         {
-            await ReplyAsync("Số lượng người thắng phải lớn hơn 0.");
+            await TempReplyAsync("Số lượng người thắng phải lớn hơn 0.");
             return;
         }
 
-        if (Context.Channel is not Discord.ITextChannel channel)
+        if (Context.Channel is not ITextChannel channel)
         {
-            await ReplyAsync("Lệnh này chỉ có thể được sử dụng trong kênh văn bản.");
+            await TempReplyAsync("Lệnh này chỉ có thể được sử dụng trong kênh văn bản.");
             return;
         }
 
-        var embed = new Discord.EmbedBuilder()
-            .WithTitle(prize)
-            .WithDescription($"**Phần thưởng:** {prize}\n**Người thắng:** {winnerCount}\n**Kết thúc vào:** {DateTime.UtcNow.Add(timeSpan).ToUniversalTime():yyyy-MM-dd HH:mm:ss} UTC")
-            .WithFooter($"Bắt đầu bởi {Context.User.Username}#{Context.User.Discriminator}")
-            .WithColor(Discord.Color.Green)
-            .WithCurrentTimestamp();
+        _ = Context.Message.DeleteAsync().ConfigureAwait(false);
 
-        var message = await channel.SendMessageAsync(text: "<a:bluewing1:1417719148699713601> GIVEAWAY <a:bluewing2:1417719132807233577>", embed: embed.Build());
+        var existingGiveaways = giveawayService.GetActiveGiveaways(Context.Guild.Id).Count();
+        if (existingGiveaways >= MAX_GIVEAWAYS_PER_GUILD)
+        {
+            await TempReplyAsync($"Máy chủ của bạn đã đạt đến giới hạn tối đa là **`{MAX_GIVEAWAYS_PER_GUILD}`** giveaway đang hoạt động. Vui lòng kết thúc một giveaway hiện tại trước khi tạo mới.");
+            return;
+        }
 
-        await giveawayService.StartGiveawayAsync(
-            prize,
-            Context.Guild.Id,
-            channel.Id,
-            message.Id,
-            Context.User.Id,
-            winnerCount,
-            timeSpan
+        await giveawayService.PublishGiveawayMessageAsync(
+            Context.Message,
+            new GiveawayStartOption(prize, Context.Guild.Id, Context.Channel.Id, Context.Message.Id, Context.User.Id, winnerCount, timeSpan)
         ).ConfigureAwait(false);
-        
-        await message.AddReactionAsync(new Discord.Emote(1418077952112988202, "a:m_heart2", true));
     }
-
     private static bool TryParseDuration(string duration, out TimeSpan timeSpan)
     {
         timeSpan = TimeSpan.Zero;
@@ -73,6 +75,7 @@ public class GiveawayModule(DiscordSocketClient? _client, GiveawayService giveaw
             'm' => TimeSpan.FromMinutes(timeValue),
             'h' => TimeSpan.FromHours(timeValue),
             'd' => TimeSpan.FromDays(timeValue),
+            's' => TimeSpan.FromSeconds(timeValue),
             _ => TimeSpan.Zero
         };
 

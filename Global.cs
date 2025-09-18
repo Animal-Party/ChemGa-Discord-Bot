@@ -1,5 +1,7 @@
 using System.Reflection;
 using ChemGa.Core.Common.Attributes;
+using Discord;
+using Discord.WebSocket;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace ChemGa;
@@ -40,5 +42,14 @@ public static class ServiceCollectionExtensions
         }
 
         return services;
+    }
+}
+
+public static class DiscordSocketClientExtensions
+{
+    public static EmbedBuilder Embed(this DiscordSocketClient _client)
+    {
+        return new EmbedBuilder()
+            .WithColor(Color.TryParse("#aed7f3", out Color color) ? color : Color.Magenta);
     }
 }
