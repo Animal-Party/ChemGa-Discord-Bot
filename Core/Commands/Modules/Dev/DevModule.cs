@@ -10,7 +10,6 @@ public class DevModule(IBypassService bypassService) : BaseCommand
 {
     private readonly IBypassService? bypassService = bypassService;
     
-    [CommandMeta]
     [Command("addbypass")]
     [Alias("ab", "addb")]
     [Summary("Add a user to the global bypass list.")]

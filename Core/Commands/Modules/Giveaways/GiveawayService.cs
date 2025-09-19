@@ -34,7 +34,9 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
     /// </summary>
     public IQueryable<Giveaway> GetActiveGiveaways(ulong? guildId = null)
     {
-        return _giveaways.Where(g => g.EndAt > DateTime.UtcNow && !g.IsEnded && (guildId == null || g.GuildId == guildId)); ;
+        return _giveaways
+            .AsNoTracking()
+            .Where(g => g.EndAt > DateTime.UtcNow && !g.IsEnded && (guildId == null || g.GuildId == guildId));
     }
 
     /// <summary>
@@ -42,11 +44,19 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
     /// </summary>
     public IQueryable<Giveaway> GetEndedGiveaways()
     {
-        return _giveaways.Where(g => g.EndAt <= DateTime.UtcNow && !g.IsEnded);
+        return _giveaways
+            .AsNoTracking()
+            .Where(g => g.EndAt <= DateTime.UtcNow && !g.IsEnded);
     }
     public Giveaway? GetGiveaway(ulong messageId)
     {
-        return _giveaways.FirstOrDefault(g => g.MessageId == messageId);
+        return _giveaways
+            .AsNoTracking()
+            .FirstOrDefault(g => g.MessageId == messageId);
+    }
+    public Task<bool> GiveawayExistsAsync(ulong messageId)
+    {
+        return _giveaways.AnyAsync(g => g.MessageId == messageId);
     }
 
     /// <summary>
@@ -82,8 +92,27 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
     /// <summary>
     /// Đánh dấu giveaway đã kết thúc.
     /// </summary>
-    public async Task EndGiveawayAsync(Giveaway giveaway, IMessage? message, bool isReroll = false)
+    public async Task EndGiveawayAsync(Giveaway giveaway, bool isReroll = false)
     {
+        IMessage? message = null;
+        try
+        {
+            if (await _client.Rest.GetChannelAsync(giveaway.ChannelId) is IMessageChannel channel)
+            {
+                message = await channel.GetMessageAsync(giveaway.MessageId).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Failed to fetch channel/message for giveaway {GiveawayId}", giveaway.Id);
+        }
+
+        if (message == null && !isReroll)
+        {
+            Log.Warning("Giveaway message not found for giveaway {GiveawayId}, skipping end process.", giveaway.Id);
+            return;
+        }
+
         IEmote? giveawayEmote = null;
         if (message != null)
         {
@@ -153,7 +182,6 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
         var winners = DrawWinnersFromList(giveaway.ParticipantIds, giveaway.WinnerCount);
         giveaway.WinnerIds = [.. winners.Distinct()];
 
-        // Persist winners/participants using DbWriteLocker
         await _dbWriteLocker.RunAsync(async scopedDb =>
         {
             var set = scopedDb.GetModel<Giveaway>();
@@ -337,7 +365,7 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
                 .Take(20)
                 .ToList();
 
-            if (!endedGiveaways.Any()) continue;
+            if (endedGiveaways.Count == 0) continue;
 
             var semaphore = new SemaphoreSlim(concurrency);
             var tasks = new List<Task>();
@@ -349,20 +377,8 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
                 {
                     try
                     {
-                        IMessage? message = null;
-                        try
-                        {
-                            if (await _client.Rest.GetChannelAsync(giveaway.ChannelId) is IMessageChannel channel)
-                            {
-                                message = await channel.GetMessageAsync(giveaway.MessageId).ConfigureAwait(false);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Log.Warning(ex, "Failed to fetch channel/message for giveaway {GiveawayId}", giveaway.Id);
-                        }
 
-                        await EndGiveawayAsync(giveaway, message).ConfigureAwait(false);
+                        await EndGiveawayAsync(giveaway).ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
@@ -406,29 +422,13 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
         await _dbWriteLocker.RunAsync(scopedDb => scopedDb.SaveChangesAsync()).ConfigureAwait(false);
     }
 
-    internal async Task<ulong[]> RerollGiveawayAsync(ulong messageId, IGuild guild)
+    internal async Task<ulong[]> RerollGiveawayAsync(ulong messageId)
     {
         var giveaway = GetGiveaway(messageId);
         if (giveaway is null)
             return [];
+        await EndGiveawayAsync(giveaway, isReroll: true).ConfigureAwait(false);
 
-        IMessage? message = null;
-        try
-        {
-            if (await _client.Rest.GetChannelAsync(giveaway.ChannelId) is IMessageChannel channel)
-            {
-                message = await channel.GetMessageAsync(giveaway.MessageId).ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "Failed to fetch message for reroll giveaway {GiveawayId}", giveaway.Id);
-        }
-
-        // Delegate to EndGiveawayAsync with isReroll = true which performs winner selection, edit and announcement.
-        await EndGiveawayAsync(giveaway, message, isReroll: true).ConfigureAwait(false);
-
-        // Return the newly persisted winners
         var updated = GetGiveaway(messageId);
         return updated?.WinnerIds ?? [];
     }

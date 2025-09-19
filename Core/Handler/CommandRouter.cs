@@ -66,7 +66,7 @@ public sealed class CommandRouter(
         if (msg.Author.IsBot) return;
 
         var argPos = 0;
-        if (!(msg.HasMentionPrefix(_client.CurrentUser, ref argPos) || msg.HasStringPrefix(_prefix, ref argPos)))
+        if (!(msg.HasMentionPrefix(_client.CurrentUser, ref argPos) || msg.HasStringPrefix(_prefix, ref argPos, StringComparison.OrdinalIgnoreCase)))
             return;
 
         bool isByPass = false;

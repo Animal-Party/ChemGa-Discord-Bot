@@ -8,6 +8,7 @@ namespace ChemGa.Database.Models;
 
 [DbSet]
 [Index(nameof(MessageId), IsUnique = true)]
+[Index(nameof(EndAt), nameof(IsEnded), nameof(GuildId), AllDescending = true)]
 [PrimaryKey(nameof(Id))]
 public class Giveaway
 {

@@ -16,8 +16,20 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
         var type = GetType();
         var classMeta = type.GetCustomAttribute<CommandMetaAttribute>();
 
-        var method = type.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            .FirstOrDefault(m => m.GetCustomAttribute<CommandAttribute>() != null);
+        var methods = type
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(m => m.GetCustomAttribute<CommandMetaAttribute>() != null);
+
+        foreach (var method in methods)
+        {
+            var methodMeta = method.GetCustomAttribute<CommandMetaAttribute>();
+            if (methodMeta == null) continue;
+
+            RegisterCommand(type, method);
+        }
+    }
+    private static void RegisterCommand(Type type, MethodInfo method)
+    {
 
         var discordCmd = method?.GetCustomAttribute<CommandAttribute>();
         var name = discordCmd?.Text ?? type.Name.ToLowerInvariant();
