@@ -1,0 +1,11 @@
+./bin
+./obj
+./.vscode
+./.vs
+*.user
+*.suo
+*.db
+*.opendb
+*.log
+*.tlog
+./Log
