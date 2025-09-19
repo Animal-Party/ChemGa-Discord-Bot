@@ -1,10 +1,9 @@
 using Microsoft.EntityFrameworkCore;
-using ChemGa.Database.Utils;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Runtime.InteropServices;
 
 namespace ChemGa.Database.Models;
-
 
 [DbSet]
 [Index(nameof(MessageId), IsUnique = true)]
@@ -12,9 +11,8 @@ namespace ChemGa.Database.Models;
 [PrimaryKey(nameof(Id))]
 public class Giveaway
 {
-    [MaxLength(36)]
     [Column("_id")]
-    public string Id { get; set; } = UuidV7.NewString();
+    public Guid Id { get; set; } = Guid.CreateVersion7();
     [Column("guild_id")] public ulong GuildId { get; set; }
     [Required] [Column("channel_id")] public ulong ChannelId { get; set; }
     [Column("message_id")] public ulong MessageId { get; set; }

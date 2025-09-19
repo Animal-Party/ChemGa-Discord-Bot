@@ -8,7 +8,7 @@ namespace ChemGa.Database.Models.Utility;
 public class GlobalBypass
 {
     [Key]
-    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public Guid Id { get; set; } = Guid.CreateVersion7();
     [Required]
     public ulong UserId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
