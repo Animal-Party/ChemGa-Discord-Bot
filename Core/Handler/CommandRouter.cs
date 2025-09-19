@@ -6,6 +6,7 @@ using ChemGa.Core.Common.Attributes;
 using Serilog;
 using Microsoft.Extensions.DependencyInjection;
 using Discord.Rest;
+using ChemGa.Core.Services;
 
 namespace ChemGa.Core.Handler;
 
@@ -66,6 +67,16 @@ public sealed class CommandRouter(
 
         var argPos = 0;
         if (!(msg.HasMentionPrefix(_client.CurrentUser, ref argPos) || msg.HasStringPrefix(_prefix, ref argPos)))
+            return;
+
+        bool isByPass = false;
+        if (_services is not null)
+        {
+            var bypassService = _services.GetRequiredService<IBypassService>();
+            isByPass = await bypassService.IsBypassedAsync(msg.Author.Id);
+        }
+
+        if (!isByPass)
             return;
 
         var context = new SocketCommandContext(_client, msg);

@@ -1,5 +1,8 @@
+using ChemGa.Core.Common.Attributes;
+
 namespace ChemGa.Core.Common.Utils;
 
+[RegisterService(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Singleton, typeof(RequireExHelpers))]
 public static class RequireExHelpers
 {
     public static bool IsBypassed(IServiceProvider? services, ulong userId)

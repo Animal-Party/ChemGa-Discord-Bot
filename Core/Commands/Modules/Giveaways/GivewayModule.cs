@@ -9,8 +9,7 @@ namespace ChemGa.Core.Commands.Modules.Giveaways;
 [Cooldown(2, CooldownScope.Guild)]
 [RequireBotPermissionEx(GuildPermission.ManageMessages)]
 [RequireUserPermissionEx(GuildPermission.ManageMessages)]
-[RequireRoleEx(1417541384696631356, ErrorMessage = "Bạn cần có vai trò **`{roleName}`** để sử dụng lệnh này!")]
-public class GiveawayModule(DiscordSocketClient? _client, GiveawayService giveawayService) : BaseCommand(_client)
+public class GiveawayModule(GiveawayService giveawayService) : BaseCommand()
 {
     private static readonly int MAX_GIVEAWAYS_PER_GUILD = 20;
 
@@ -58,6 +57,34 @@ public class GiveawayModule(DiscordSocketClient? _client, GiveawayService giveaw
             new GiveawayStartOption(prize, Context.Guild.Id, Context.Channel.Id, Context.Message.Id, Context.User.Id, winnerCount, timeSpan)
         ).ConfigureAwait(false);
     }
+
+    [Command("giveaway-reroll", RunMode = RunMode.Async)]
+    [Alias("greroll", "gr")]
+    [Summary("Chọn lại người thắng cho một giveaway đã kết thúc.")]
+    public async Task RerollGiveawayAsync(ulong messageId)
+    {
+        var giveaway = giveawayService.GetGiveaway(messageId);
+        if (giveaway is null)
+        {
+            await TempReplyAsync("Không tìm thấy giveaway với ID tin nhắn đã cho.");
+            return;
+        }
+
+        if (!giveaway.IsEnded)
+        {
+            await TempReplyAsync("Giveaway này vẫn đang hoạt động. Bạn chỉ có thể chọn lại người thắng cho các giveaway đã kết thúc.");
+            return;
+        }
+
+        var newWinners = await giveawayService.RerollGiveawayAsync(messageId, Context.Guild).ConfigureAwait(false);
+        if (newWinners == null || newWinners.Length == 0)
+        {
+            await TempReplyAsync("Không thể chọn người thắng mới. Có thể không có đủ người tham gia.");
+            return;
+        }
+        await Context.Message.DeleteAsync().ConfigureAwait(false);
+    }
+
     private static bool TryParseDuration(string duration, out TimeSpan timeSpan)
     {
         timeSpan = TimeSpan.Zero;

@@ -4,22 +4,15 @@ using ChemGa.Core.Handler;
 using Discord;
 using Discord.Commands;
 using ChemGa.Interfaces;
-using Discord.WebSocket;
 using Serilog;
 
 namespace ChemGa.Core.Commands;
 
 public abstract class BaseCommand : ModuleBase<SocketCommandContext>
 {
-    private readonly DiscordSocketClient? _client;
-    private readonly ILogger? _logger;
     private static readonly TimeSpan DefaultTempTtl = TimeSpan.FromSeconds(5);
-    protected BaseCommand(DiscordSocketClient? client)
+    protected BaseCommand()
     {
-        _client = client;
-        // try to resolve a logger from DI if available via static Log
-        _logger = Log.Logger;
-
         var type = GetType();
         var classMeta = type.GetCustomAttribute<CommandMetaAttribute>();
 
@@ -93,8 +86,7 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
                 }
                 else if (p.PropertyType == typeof(GuildPermission[]))
                 {
-                    var v = p.GetValue(a) as GuildPermission[];
-                    if (v != null) foreach (var gp in v) userPerms.Add(gp);
+                    if (p.GetValue(a) is GuildPermission[] v) foreach (var gp in v) userPerms.Add(gp);
                 }
             }
 
@@ -104,8 +96,7 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
             {
                 if (botProp.PropertyType == typeof(GuildPermission[]))
                 {
-                    var v = botProp.GetValue(a) as GuildPermission[];
-                    if (v != null) foreach (var gp in v) botPerms.Add(gp);
+                    if (botProp.GetValue(a) is GuildPermission[] v) foreach (var gp in v) botPerms.Add(gp);
                 }
                 else if (botProp.PropertyType == typeof(GuildPermission))
                 {
@@ -206,8 +197,7 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
     {
         try
         {
-            var msg = await ReplyAsync(text).ConfigureAwait(false) as IUserMessage;
-            if (msg == null) return null;
+            if (await ReplyAsync(text).ConfigureAwait(false) is not IUserMessage msg) return null;
 
             _ = Task.Run(async () =>
             {
@@ -218,7 +208,7 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
                 }
                 catch (Exception ex)
                 {
-                    _logger?.Warning(ex, "Failed to delete TempReply message");
+                    Log.Warning(ex, "Failed to delete TempReply message");
                 }
             });
 
@@ -226,7 +216,7 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
         }
         catch (Exception ex)
         {
-            _logger?.Warning(ex, "Failed to send TempReply");
+            Log.Warning(ex, "Failed to send TempReply");
             return null;
         }
     }
@@ -237,11 +227,10 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
     /// </summary>
     protected async Task<IUserMessage?> TempSendAsync(IMessageChannel channel, string text, TimeSpan ttl)
     {
-        if (channel == null) throw new ArgumentNullException(nameof(channel));
+        ArgumentNullException.ThrowIfNull(channel);
         try
         {
-            var msg = await channel.SendMessageAsync(text).ConfigureAwait(false) as IUserMessage;
-            if (msg == null) return null;
+            if (await channel.SendMessageAsync(text).ConfigureAwait(false) is not IUserMessage msg) return null;
 
             _ = Task.Run(async () =>
             {
@@ -252,7 +241,7 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
                 }
                 catch (Exception ex)
                 {
-                    _logger?.Warning(ex, "Failed to delete TempSend message");
+                    Log.Warning(ex, "Failed to delete TempSend message");
                 }
             });
 
@@ -260,7 +249,7 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
         }
         catch (Exception ex)
         {
-            _logger?.Warning(ex, "Failed to send TempSend");
+            Log.Warning(ex, "Failed to send TempSend");
             return null;
         }
     }
@@ -287,14 +276,13 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
             // If advanced params are provided, use Channel.SendMessageAsync to pass them through
             if (allowedMentions != null || messageReference != null || components != null)
             {
-                var ch = Context?.Channel as IMessageChannel;
-                if (ch == null)
+                if (Context?.Channel is not IMessageChannel ch)
                 {
-                    _logger?.Warning("Context channel not available for TempReply (advanced)");
+                    Log.Warning("Context channel not available for TempReply (advanced)");
                     return null;
                 }
 
-                sent = await ch.SendMessageAsync(text, isTTS, embed, options, allowedMentions, messageReference, components).ConfigureAwait(false) as IUserMessage;
+                sent = await ch.SendMessageAsync(text, isTTS, embed, options, allowedMentions, messageReference, components).ConfigureAwait(false);
             }
             else
             {
@@ -312,7 +300,7 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
                 }
                 catch (Exception ex)
                 {
-                    _logger?.Warning(ex, "Failed to delete TempReply (overload) message");
+                    Log.Warning(ex, "Failed to delete TempReply (overload) message");
                 }
             });
 
@@ -320,7 +308,7 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
         }
         catch (Exception ex)
         {
-            _logger?.Warning(ex, "Failed to send TempReply (overload)");
+            Log.Warning(ex, "Failed to send TempReply (overload)");
             return null;
         }
     }
@@ -331,12 +319,11 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
     /// </summary>
     protected async Task<IUserMessage?> TempSendAsync(IMessageChannel channel, string? text = null, bool isTTS = false, Embed? embed = null, RequestOptions? options = null, AllowedMentions? allowedMentions = null, MessageReference? messageReference = null, MessageComponent? components = null, TimeSpan ttl = default)
     {
-        if (channel == null) throw new ArgumentNullException(nameof(channel));
+        ArgumentNullException.ThrowIfNull(channel);
         var effectiveTtl = ttl == default ? DefaultTempTtl : ttl;
         try
         {
-            var sent = await channel.SendMessageAsync(text, isTTS, embed, options, allowedMentions, messageReference, components).ConfigureAwait(false) as IUserMessage;
-            if (sent == null) return null;
+            if (await channel.SendMessageAsync(text, isTTS, embed, options, allowedMentions, messageReference, components).ConfigureAwait(false) is not IUserMessage sent) return null;
 
             _ = Task.Run(async () =>
             {
@@ -347,7 +334,7 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
                 }
                 catch (Exception ex)
                 {
-                    _logger?.Warning(ex, "Failed to delete TempSend (overload) message");
+                    Log.Warning(ex, "Failed to delete TempSend (overload) message");
                 }
             });
 
@@ -355,7 +342,7 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
         }
         catch (Exception ex)
         {
-            _logger?.Warning(ex, "Failed to send TempSend (overload)");
+            Log.Warning(ex, "Failed to send TempSend (overload)");
             return null;
         }
     }
@@ -365,8 +352,7 @@ public abstract class BaseCommand : ModuleBase<SocketCommandContext>
     /// </summary>
     protected Task<IUserMessage?> TempSendAsync(string? text = null, bool isTTS = false, Embed? embed = null, RequestOptions? options = null, TimeSpan ttl = default)
     {
-        var ch = Context?.Channel as IMessageChannel;
-        if (ch == null) throw new InvalidOperationException("Command context channel is not available or not an IMessageChannel.");
+        if (Context?.Channel is not IMessageChannel ch) throw new InvalidOperationException("Command context channel is not available or not an IMessageChannel.");
         return TempSendAsync(ch, text, isTTS, embed, options, allowedMentions: null, messageReference: null, components: null, ttl: ttl);
     }
 

@@ -6,7 +6,7 @@ using Discord;
 using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
-using Microsoft.Extensions.DependencyInjection;
+using ChemGa.Core.Common.Utils;
 
 namespace ChemGa.Core.Commands.Modules.Giveaways;
 
@@ -21,11 +21,11 @@ public record GiveawayStartOption(
 );
 
 [RegisterService(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Scoped, serviceType: typeof(GiveawayService))]
-public class GiveawayService(AppDatabase db, DiscordSocketClient _client, ChemGa.Core.Utils.IDbWriteLocker dbWriteLocker) : IService
+public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWriteLocker dbWriteLocker) : IService
 {
     private readonly AppDatabase _db = db;
     private readonly DiscordSocketClient _client = _client;
-    private readonly ChemGa.Core.Utils.IDbWriteLocker _dbWriteLocker = dbWriteLocker;
+    private readonly IDbWriteLocker _dbWriteLocker = dbWriteLocker;
     private CancellationTokenSource? _cts;
     private Task? _worker;
     private readonly DbSet<Giveaway> _giveaways = db.GetModel<Giveaway>();
@@ -82,9 +82,8 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, ChemGa
     /// <summary>
     /// Đánh dấu giveaway đã kết thúc.
     /// </summary>
-    public async Task EndGiveawayAsync(Giveaway giveaway, IMessage? message)
+    public async Task EndGiveawayAsync(Giveaway giveaway, IMessage? message, bool isReroll = false)
     {
-        // Do not mark as ended until we've processed and announced winners.
         IEmote? giveawayEmote = null;
         if (message != null)
         {
@@ -104,7 +103,7 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, ChemGa
 
         var participants = new List<ulong>();
 
-        if (giveawayEmote != null && message != null)
+        if (giveawayEmote != null && message != null && !isReroll)
         {
             var pageCounter = 0;
             var rng = new Random();
@@ -132,6 +131,13 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, ChemGa
                 }
             }
         }
+        else if (isReroll)
+        {
+            if (giveaway.ParticipantIds != null && giveaway.ParticipantIds.Length > 0)
+            {
+                participants.AddRange(giveaway.ParticipantIds);
+            }
+        }
 
         // If we could not fetch reaction users (e.g., message missing), fall back to stored participant ids
         if (participants.Count == 0 && (message == null || giveawayEmote == null))
@@ -142,10 +148,10 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, ChemGa
             }
         }
 
-        giveaway.ParticipantIds = participants.Distinct().ToArray();
+        giveaway.ParticipantIds = [.. participants.Distinct()];
 
         var winners = DrawWinnersFromList(giveaway.ParticipantIds, giveaway.WinnerCount);
-        giveaway.WinnerIds = winners.Distinct().ToArray();
+        giveaway.WinnerIds = [.. winners.Distinct()];
 
         // Persist winners/participants using DbWriteLocker
         await _dbWriteLocker.RunAsync(async scopedDb =>
@@ -213,6 +219,7 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, ChemGa
         }).ConfigureAwait(false);
     }
 
+
     private static bool IsValidParticipant(IGuildUser? user, Giveaway giveaway)
     {
         if (user == null) return false;
@@ -235,7 +242,7 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, ChemGa
 
     private static ulong[] DrawWinnersFromList(ulong[] pool, int count)
     {
-        if (pool == null || pool.Length == 0 || count <= 0) return Array.Empty<ulong>();
+        if (pool == null || pool.Length == 0 || count <= 0) return [];
         var list = pool.Distinct().ToList();
         if (list.Count <= count) return [.. list];
 
@@ -298,9 +305,16 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, ChemGa
         {
             if (newMessage is IUserMessage newUm)
             {
-                await newUm.AddReactionAsync(new Emote(1418077952112988202, "a:m_heart2", true)).ConfigureAwait(false);
+                try
+                {
+                    var emote = Emote.Parse("<a:cg_hblue:1418077952112988202>");
+                    await newUm.AddReactionAsync(emote).ConfigureAwait(false);
+                }
+                catch
+                {
+                }
+
                 giveaway.MessageId = newUm.Id;
-                // Persist message id using the DbWriteLocker helper
                 await _dbWriteLocker.RunAsync(async scopedDb =>
                 {
                     var set = scopedDb.GetModel<Giveaway>();
@@ -392,4 +406,30 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, ChemGa
         await _dbWriteLocker.RunAsync(scopedDb => scopedDb.SaveChangesAsync()).ConfigureAwait(false);
     }
 
+    internal async Task<ulong[]> RerollGiveawayAsync(ulong messageId, IGuild guild)
+    {
+        var giveaway = GetGiveaway(messageId);
+        if (giveaway is null)
+            return [];
+
+        IMessage? message = null;
+        try
+        {
+            if (await _client.Rest.GetChannelAsync(giveaway.ChannelId) is IMessageChannel channel)
+            {
+                message = await channel.GetMessageAsync(giveaway.MessageId).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Failed to fetch message for reroll giveaway {GiveawayId}", giveaway.Id);
+        }
+
+        // Delegate to EndGiveawayAsync with isReroll = true which performs winner selection, edit and announcement.
+        await EndGiveawayAsync(giveaway, message, isReroll: true).ConfigureAwait(false);
+
+        // Return the newly persisted winners
+        var updated = GetGiveaway(messageId);
+        return updated?.WinnerIds ?? [];
+    }
 }

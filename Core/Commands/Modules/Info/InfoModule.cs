@@ -8,7 +8,7 @@ namespace ChemGa.Core.Commands.Modules;
 
 [CommandMeta]
 [Cooldown(2, CooldownScope.User)]
-public class InfoModule(DiscordSocketClient client) : BaseCommand(client)
+public class InfoModule() : BaseCommand()
 {
     [CommandMeta]
     [Command("ping")]
