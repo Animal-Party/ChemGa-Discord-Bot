@@ -71,28 +71,16 @@ public class InfoModule() : BaseCommand()
 
             if (cmdMeta.CooldownSeconds > 0)
                 embedBuilder.AddField("Cooldown", $"{cmdMeta.CooldownSeconds} seconds");
-
-            if (!string.IsNullOrWhiteSpace(cmdMeta.Remarks))
-                embedBuilder.AddField("Remarks", cmdMeta.Remarks);
-
             if (cmdMeta.UserPermissions?.Length > 0)
                 embedBuilder.AddField("User Permissions", string.Join(", ", cmdMeta.UserPermissions.Select(p => p.ToString())));
-
             if (cmdMeta.BotPermissions?.Length > 0)
                 embedBuilder.AddField("Bot Permissions", string.Join(", ", cmdMeta.BotPermissions.Select(p => p.ToString())));
             if (cmdMeta.RequiredRoles?.Length > 0)
                 embedBuilder.AddField("Required Roles", string.Join(", ", cmdMeta.RequiredRoles.Select(r => $"`{r}`")));
-            if (cmdMeta.Preconditions?.Length > 0)
-                embedBuilder.AddField("Preconditions", string.Join(", ", cmdMeta.Preconditions.Select(p => $"`{p}`")));
-            if (cmdMeta.Groups?.Length > 0)
-                embedBuilder.AddField("Groups", string.Join(", ", cmdMeta.Groups.Select(g => $"`{g}`")));
-            if (cmdMeta.RequireOwner)
-                embedBuilder.AddField("Requires Bot Owner", "Yes");
-            if (cmdMeta.RequireContexts?.Length > 0)
-                embedBuilder.AddField("Required Contexts", string.Join(", ", cmdMeta.RequireContexts.Select(c => c.ToString())));
+                
             embedBuilder.AddField("Category", cmdMeta.Category);
-            embedBuilder.AddField("Declaring Module", cmdMeta.DeclaringType.Name);
             embedBuilder.WithFooter(footer => footer.Text = "Use !help to list all commands.");
+            
             await ReplyAsync(embed: embedBuilder.Build());
         }
     }

@@ -10,16 +10,6 @@ using ChemGa.Core.Common.Utils;
 
 namespace ChemGa.Core.Commands.Modules.Giveaways;
 
-public record GiveawayStartOption(
-    string Prize,
-    ulong GuildId,
-    ulong ChannelId,
-    ulong MessageId,
-    ulong HostId,
-    int WinnerCount,
-    TimeSpan Duration
-);
-
 [RegisterService(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Scoped, serviceType: typeof(GiveawayService))]
 public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWriteLocker dbWriteLocker) : IService
 {
@@ -77,6 +67,34 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
             HostId = hostId,
             WinnerCount = winnerCount,
             IsEnded = false
+        };
+
+        await _dbWriteLocker.RunAsync(async scopedDb =>
+        {
+            var set = scopedDb.GetModel<Giveaway>();
+            await set.AddAsync(giveaway).ConfigureAwait(false);
+            await scopedDb.SaveChangesAsync().ConfigureAwait(false);
+        }).ConfigureAwait(false);
+
+        return giveaway;
+    }
+
+    public async Task<Giveaway> StartGiveawayAsync(GiveawayStartOptionWithRole option)
+    {
+        var (prize, guildId, channelId, messageId, hostId, winnerCount, duration, listRoles) = option;
+
+        var giveaway = new Giveaway
+        {
+            StartAt = DateTime.UtcNow,
+            EndAt = DateTime.UtcNow.Add(duration),
+            Prize = prize,
+            GuildId = guildId,
+            ChannelId = channelId,
+            MessageId = messageId,
+            HostId = hostId,
+            WinnerCount = winnerCount,
+            IsEnded = false,
+            RoleRequirements = [.. listRoles]
         };
 
         await _dbWriteLocker.RunAsync(async scopedDb =>
@@ -295,6 +313,8 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
         {(ended ? "" : header)}
         {(ended ? $"{heart} Người chiến thắng: {string.Join(" ", giveaway.WinnerIds.Select(u => $"<@{u}>"))}" : $"{heart} Kết thúc trong: <t:{endUnix}:R>")} 
         {heart} Tổ chức bởi: <@{giveaway.HostId}>
+
+        {(giveaway.RoleRequirements.Length > 0 ? $"{heart} Yêu cầu vai trò: {string.Join(", ", giveaway.RoleRequirements.Select(rid => $"<@&{rid}>"))}\n" : "")}
         """.Trim();
 
         var embed = _client.Embed()
@@ -328,6 +348,49 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
             catch { /* ignore send failures */ }
         }
 
+        try
+        {
+            if (newMessage is IUserMessage newUm)
+            {
+                try
+                {
+                    var emote = Emote.Parse("<a:cg_hblue:1418077952112988202>");
+                    await newUm.AddReactionAsync(emote).ConfigureAwait(false);
+                }
+                catch
+                {
+                }
+
+                giveaway.MessageId = newUm.Id;
+                await _dbWriteLocker.RunAsync(async scopedDb =>
+                {
+                    var set = scopedDb.GetModel<Giveaway>();
+                    set.Update(giveaway);
+                    await scopedDb.SaveChangesAsync().ConfigureAwait(false);
+                }).ConfigureAwait(false);
+            }
+        }
+        catch { /* ignore reaction failures */ }
+    }
+    public async Task PublishGiveawayMessageAsync(IUserMessage message, GiveawayStartOptionWithRole option)
+    {
+        var giveaway = await StartGiveawayAsync(option).ConfigureAwait(false);
+        var host = _client.GetGuild(giveaway.GuildId).GetUser(giveaway.HostId);
+
+        var embedBuilder = BuildGiveawayEmbed(giveaway, host, ended: false);
+
+        IMessage? newMessage = null;
+        if (message.Channel is IMessageChannel ch)
+        {
+            try
+            {
+                newMessage = await ch.SendMessageAsync(
+                    text: "# <a:bling:1418195302053187584><a:bluewing1:1417719148699713601> GIVEAWAY <a:bluewing2:1417719132807233577><a:bling:1418195302053187584>",
+                    embed: embedBuilder.Build()
+                ).ConfigureAwait(false);
+            }
+            catch { /* ignore send failures */ }
+        }
 
         try
         {

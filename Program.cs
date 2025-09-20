@@ -1,6 +1,7 @@
 ﻿using Discord;
 using Discord.WebSocket;
 using Discord.Commands;
+using Discord.Interactions;
 using ChemGa.Core.Handler;
 using dotenv.net;
 using Serilog;
@@ -85,13 +86,20 @@ internal sealed class Program
             .AddSingleton(sp => new CommandService(new CommandServiceConfig
             {
                 LogLevel = LogSeverity.Info,
-                DefaultRunMode = RunMode.Async,
+                DefaultRunMode = Discord.Commands.RunMode.Async,
             }))
+            .AddSingleton(sp => new InteractionService(sp.GetRequiredService<DiscordSocketClient>()))
             .AddSingleton(sp => new CommandRouter(
                     sp.GetRequiredService<DiscordSocketClient>(),
                     sp.GetRequiredService<CommandService>(),
                     services: sp,
                     prefix: AppConfig.GetPrefix()
+                )
+            )
+            .AddSingleton(sp => new InteractionRouter(
+                    sp.GetRequiredService<DiscordSocketClient>(),
+                    sp.GetRequiredService<InteractionService>(),
+                    services: sp
                 )
             )
             .BuildServiceProvider();
@@ -109,6 +117,12 @@ internal sealed class Program
         if (Client is null) throw new InvalidOperationException("Client not initialized");
         await router.RegisterModulesAsync(typeof(Program).Assembly);
         await router.StartAsync();
+
+        // register and start interactions separately
+        var interactionRouter = _serviceProvider.GetRequiredService<InteractionRouter>();
+        await interactionRouter.RegisterModulesAsync(typeof(Program).Assembly);
+        await interactionRouter.StartAsync();
+
         await Task.CompletedTask;
     }
     private static Task LogAsync(LogMessage message)

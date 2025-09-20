@@ -1,6 +1,7 @@
 using System.Reflection;
 using ChemGa.Core.Common.Attributes;
 using Discord;
+using Discord.Interactions;
 using Discord.WebSocket;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -56,4 +57,24 @@ public static class DiscordSocketClientExtensions
 public static partial class GlobalDev
 {
     public static readonly ulong[] DevIds = [1216638785463390299UL];
+}
+
+public static class InteractionServiceExtensions
+{
+    public static async Task AddModulesWithNestedAsync(
+        this InteractionService service,
+        Assembly assembly,
+        IServiceProvider services)
+    {
+        await service.AddModulesAsync(assembly, services);
+
+        var nestedModules = assembly.GetTypes()
+            .SelectMany(t => t.GetNestedTypes(BindingFlags.Public))
+            .Where(t => typeof(InteractionModuleBase<SocketInteractionContext>).IsAssignableFrom(t));
+
+        foreach (var module in nestedModules)
+        {
+            await service.AddModuleAsync(module, services);
+        }
+    }
 }

@@ -4,11 +4,6 @@ using Discord.Commands;
 
 namespace ChemGa.Interfaces;
 
-public record PermissionRequirement(
-    GuildPermission[] UserPermissions,
-    GuildPermission[] BotPermissions
-);
-
 public record CommandMetadata(
     string Name,
     string Description,

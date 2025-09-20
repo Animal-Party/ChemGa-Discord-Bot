@@ -7,6 +7,7 @@ using Serilog;
 using Microsoft.Extensions.DependencyInjection;
 using Discord.Rest;
 using ChemGa.Core.Services;
+using Discord.Interactions;
 
 namespace ChemGa.Core.Handler;
 
@@ -87,7 +88,7 @@ public sealed class CommandRouter(
             await HandleCommandErrorAsync(context, result).ConfigureAwait(false);
         }
     }
-    private static async Task HandleCommandErrorAsync(SocketCommandContext? context, IResult result)
+    private static async Task HandleCommandErrorAsync(SocketCommandContext? context, Discord.Commands.IResult result)
     {
         if (context is null) return;
 
@@ -121,7 +122,7 @@ public sealed class CommandRouter(
         }
 
     }
-    private static async Task<bool> HandleCommandCooldownError(SocketCommandContext context, IResult result, RestUserMessage? sent)
+    private static async Task<bool> HandleCommandCooldownError(SocketCommandContext context, Discord.Commands.IResult result, RestUserMessage? sent)
     {
         if (result.Error == CommandError.UnknownCommand) return false;
         var reason = string.IsNullOrEmpty(result.ErrorReason) ? result.Error.ToString() : result.ErrorReason;
@@ -132,7 +133,7 @@ public sealed class CommandRouter(
             var parts = reason.Split(':', 2);
             if (parts.Length == 2 && int.TryParse(parts[1], out var waitSeconds) && waitSeconds > 0)
             {
-                sent = await context.Channel.SendMessageAsync($"Oi oi oi! Chậm lại nào cô bé, chờ <R:{waitSeconds}:> đê~.").ConfigureAwait(false);
+                sent = await context.Channel.SendMessageAsync($"Oi oi oi! Chậm lại nào cô bé, chờ <t:{waitSeconds}:R> đê~.").ConfigureAwait(false);
                 var delay = TimeSpan.FromSeconds(Math.Max(1, waitSeconds));
                 _ = Task.Run(async () =>
                 {
@@ -156,7 +157,7 @@ public sealed class CommandRouter(
         }
         return true;
     }
-    private Task OnCommandExecutedAsync(Optional<CommandInfo> commandOpt, ICommandContext context, IResult result)
+    private Task OnCommandExecutedAsync(Optional<CommandInfo> commandOpt, ICommandContext context, Discord.Commands.IResult result)
     {
         if (!commandOpt.IsSpecified) return Task.CompletedTask;
         try

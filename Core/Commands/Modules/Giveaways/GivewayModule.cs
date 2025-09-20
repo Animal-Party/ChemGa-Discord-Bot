@@ -125,7 +125,7 @@ public class GiveawayModule(GiveawayService giveawayService) : BaseCommand()
             return;
         }
 
-        var embedBuilder = new EmbedBuilder()
+        var embedBuilder = Context.Client.Embed()
             .WithTitle("Giveaways Đang Hoạt Động")
             .WithColor(Color.Purple)
             .WithFooter($"Yêu cầu bởi {Context.User.Username}", Context.User.GetAvatarUrl() ?? Context.User.GetDefaultAvatarUrl())
@@ -133,20 +133,147 @@ public class GiveawayModule(GiveawayService giveawayService) : BaseCommand()
 
         foreach (var giveaway in giveaways)
         {
-            var timeRemaining = giveaway.EndAt - DateTime.UtcNow;
+            var timeRemaining = new DateTimeOffset(giveaway.EndAt).ToUnixTimeSeconds();
             var channel = Context.Guild.GetTextChannel(giveaway.ChannelId);
             var channelMention = channel != null ? channel.Mention : $"Kênh ID: {giveaway.ChannelId}";
 
             embedBuilder.AddField(
                 $"{giveaway.Prize} - {giveaway.WinnerCount} người thắng",
-                $"Kênh: {channelMention}\nKết thúc trong: <R:{timeRemaining}>\nID ga: `{giveaway.MessageId}`"
+                $"Kênh: {channelMention}\nKết thúc trong: <t:{timeRemaining}:R>\nID ga: `{giveaway.MessageId}`"
             );
         }
 
-        await TempReplyAsync(embed: embedBuilder.Build());
+        await ReplyAsync(embed: embedBuilder.Build());
     }
 
+    [CommandMeta]
+    [Command("giveaway-start-role", RunMode = RunMode.Async)]
+    [Alias("gstartrole", "gcreaterole", "garole")]
+    [Summary("Bắt đầu một giveaway mới với vai trò yêu cầu.")]
+    public async Task StartGiveawayWithRoleAsync(string duration, int winnerCount, [Remainder] string prize)
+    {
+        if (!TryParseDuration(duration, out var timeSpan))
+        {
+            await TempReplyAsync("Định dạng thời gian không hợp lệ. Vui lòng sử dụng định dạng như `10m`, `2h`, `1d`.");
+            return;
+        }
 
+        if (timeSpan < TimeSpan.FromSeconds(10) || timeSpan > TimeSpan.FromDays(7))
+        {
+            await TempReplyAsync("Thời lượng giveaway phải từ 10 giây đến 7 ngày.");
+            return;
+        }
+
+        if (winnerCount <= 0)
+        {
+            await TempReplyAsync("Số lượng người thắng phải lớn hơn 0.");
+            return;
+        }
+
+        if (Context.Channel is not ITextChannel channel)
+        {
+            await TempReplyAsync("Lệnh này chỉ có thể được sử dụng trong kênh văn bản.");
+            return;
+        }
+
+        _ = Context.Message.DeleteAsync().ConfigureAwait(false);
+
+        var existingGiveaways = giveawayService.GetActiveGiveaways(Context.Guild.Id).Count();
+        if (existingGiveaways >= MAX_GIVEAWAYS_PER_GUILD)
+        {
+            await TempReplyAsync($"Máy chủ của bạn đã đạt đến giới hạn tối đa là **`{MAX_GIVEAWAYS_PER_GUILD}`** giveaway đang hoạt động. Vui lòng kết thúc một giveaway hiện tại trước khi tạo mới.");
+            return;
+        }
+
+        var embed = Context.Client.Embed()
+            .WithTitle("Chọn Vai Trò Yêu Cầu")
+            .WithDescription("Vui lòng phản ứng với tin nhắn này bằng vai trò bạn muốn yêu cầu để tham gia giveaway.\n\nNếu bạn không phản ứng trong vòng 2 phút, giveaway sẽ bị hủy.")
+            .WithColor(Color.Orange)
+            .WithFooter($"Yêu cầu bởi {Context.User.Username}", Context.User.GetAvatarUrl() ?? Context.User.GetDefaultAvatarUrl())
+            .WithCurrentTimestamp();
+
+        var menuRoles = new ComponentBuilder()
+            .WithSelectMenu(new SelectMenuBuilder()
+                .WithCustomId($"giveaway:role:select:{Context.Message.Id}")
+                .WithPlaceholder("> Chọn vai trò (tối đa 5)")
+                .WithType(ComponentType.RoleSelect)
+            )
+            .WithButton("Hủy", $"giveaway:role:select:cancel:{Context.Message.Id}", ButtonStyle.Danger);
+
+        var promptMessage = await channel.SendMessageAsync(embed: embed.Build(), components: menuRoles.Build()).ConfigureAwait(false);
+
+        using var collector = new Handler.ComponentInteractionCollector(
+            Context.Client,
+            promptMessage.Id,
+            TimeSpan.FromMinutes(1),
+            comp =>
+                comp.Data.CustomId.StartsWith($"giveaway:role:") && comp.User.Id == Context.User.Id,
+            max: 1
+        );
+
+        collector.OnReceived += async comp =>
+        {
+            try
+            {
+                if (comp.Data.CustomId.Contains("cancel"))
+                {
+                    await promptMessage.DeleteAsync().ConfigureAwait(false);
+                    await comp.RespondAsync("Giveaway đã bị hủy.", ephemeral: true).ConfigureAwait(false);
+                    return;
+                }
+
+                await comp.DeferAsync(ephemeral: true).ConfigureAwait(false);
+
+                var selectedValues = comp.Data.Values.ToArray();
+                if (selectedValues.Length == 0)
+                {
+                    await comp.FollowupAsync("Bạn phải chọn ít nhất một vai trò để tiếp tục.", ephemeral: true).ConfigureAwait(false);
+                    return;
+                }
+
+                if (selectedValues.Length > 5)
+                {
+                    await comp.FollowupAsync("Bạn chỉ có thể chọn tối đa 5 vai trò.", ephemeral: true).ConfigureAwait(false);
+                    return;
+                }
+
+                var roles = selectedValues
+                    .Select(id => Context.Guild.GetRole(ulong.Parse(id)))
+                    .Where(role => role != null)
+                    .ToList();
+
+                if (roles.Count == 0)
+                {
+                    await comp.FollowupAsync("Không tìm thấy vai trò hợp lệ nào từ lựa chọn của bạn.", ephemeral: true).ConfigureAwait(false);
+                    return;
+                }
+
+                var giveawayOption = new GiveawayStartOptionWithRole(
+                    Prize: prize,
+                    GuildId: Context.Guild.Id,
+                    ChannelId: Context.Channel.Id,
+                    MessageId: promptMessage.Id,
+                    HostId: Context.User.Id,
+                    WinnerCount: winnerCount,
+                    Duration: timeSpan,
+                    RoleIds: roles.Select(r => r!.Id).ToArray()
+                );
+
+                await giveawayService.PublishGiveawayMessageAsync(promptMessage, giveawayOption).ConfigureAwait(false);
+                await promptMessage.DeleteAsync().ConfigureAwait(false);
+                await comp.FollowupAsync("Giveaway đã được tạo thành công với vai trò yêu cầu.", ephemeral: true).ConfigureAwait(false);
+            }
+            catch {}
+        };
+
+        collector.OnEnded += async (collected, reason) =>
+        {
+            await promptMessage.DeleteAsync().ConfigureAwait(false);
+        };
+
+
+        await collector.CollectAsync().ConfigureAwait(false);
+    }
 
     private static bool TryParseDuration(string duration, out TimeSpan timeSpan)
     {
