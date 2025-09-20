@@ -1,7 +1,6 @@
 using ChemGa.Core.Common.Attributes;
 using Discord;
 using Discord.Commands;
-using Discord.WebSocket;
 
 namespace ChemGa.Core.Commands.Modules.Giveaways;
 
