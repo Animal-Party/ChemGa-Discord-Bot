@@ -36,7 +36,8 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
     {
         return _giveaways
             .AsNoTracking()
-            .Where(g => g.EndAt <= DateTime.UtcNow && !g.IsEnded);
+            .Where(g => g.EndAt <= DateTime.UtcNow && !g.IsEnded)
+            .Distinct();
     }
     public Giveaway? GetGiveaway(ulong messageId)
     {
@@ -207,29 +208,40 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
             await scopedDb.SaveChangesAsync().ConfigureAwait(false);
         }).ConfigureAwait(false);
 
-        IGuildUser? hostUser = null;
+        giveaway.IsEnded = true;
+        await _dbWriteLocker.RunAsync(async scopedDb =>
+        {
+            var set = scopedDb.GetModel<Giveaway>();
+            set.Update(giveaway);
+            await scopedDb.SaveChangesAsync().ConfigureAwait(false);
+        }).ConfigureAwait(false);
 
         try
         {
-            hostUser = await _client.Rest.GetGuildAsync(giveaway.GuildId)
-                .ConfigureAwait(false)
-                .GetAwaiter()
-                .GetResult()
-                .GetUserAsync(giveaway.HostId);
-        }
-        catch { }
+            IGuildUser? hostUser = null;
+            try
+            {
+                hostUser = _client.GetGuild(giveaway.GuildId)?.GetUser(giveaway.HostId);
+                if (hostUser == null)
+                {
+                    var guild = await _client.Rest.GetGuildAsync(giveaway.GuildId).ConfigureAwait(false);
+                    hostUser = await guild.GetUserAsync(giveaway.HostId);
+                }
+            }
+            catch { }
 
-        var embed = BuildGiveawayEmbed(giveaway, hostUser ?? _client.CurrentUser as IGuildUser ?? throw new InvalidOperationException("Host not available"), ended: true)
-            .WithCurrentTimestamp()
-            .WithFooter(new EmbedFooterBuilder { Text = $"Đã kết thúc" });
+            var embed = BuildGiveawayEmbed(
+                    giveaway,
+                    hostUser ?? throw new InvalidOperationException("Host not available"),
+                    ended: true)
+                .WithCurrentTimestamp()
+                .WithFooter(new EmbedFooterBuilder { Text = $"Đã kết thúc" });
 
-        if (winners.Length == 0)
-        {
-            embed.WithDescription("Buồn qué ಥ_ಥ ~ Không ai tham gia giveaway này cả.");
-        }
+            if (winners.Length == 0)
+            {
+                embed.WithDescription("Buồn qué ಥ_ಥ ~ Không ai tham gia giveaway này cả.");
+            }
 
-        try
-        {
             if (message is IUserMessage um)
             {
                 await um.ModifyAsync(props =>
@@ -241,7 +253,6 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
 
             if (message?.Channel is not null && winners.Length > 0)
             {
-                // message exists but not editable; send announcement as a new message
                 var messageUrl = $"https://discord.com/channels/{giveaway.GuildId}/{giveaway.ChannelId}/{giveaway.MessageId}";
                 var winMessage = $"### <:lathu:1417749932982665269> | Xin chúc mừng {string.Join(", ", winners.Select(w => $"<@{w}>"))} đã trúng giveaway __{giveaway.Prize}__ tổ chức bởi <@{giveaway.HostId}>!\n";
                 await message.Channel.SendMessageAsync(
@@ -255,14 +266,6 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
         {
             Log.Warning(ex, "Failed to announce giveaway end for {GiveawayId}", giveaway.Id);
         }
-
-        giveaway.IsEnded = true;
-        await _dbWriteLocker.RunAsync(async scopedDb =>
-        {
-            var set = scopedDb.GetModel<Giveaway>();
-            set.Update(giveaway);
-            await scopedDb.SaveChangesAsync().ConfigureAwait(false);
-        }).ConfigureAwait(false);
     }
 
 
@@ -309,13 +312,16 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
 
         var endUnix = new DateTimeOffset(giveaway.EndAt).ToUnixTimeSeconds();
 
-        var description = $"""
-        {(ended ? "" : header)}
-        {(ended ? $"{heart} Người chiến thắng: {string.Join(" ", giveaway.WinnerIds.Select(u => $"<@{u}>"))}" : $"{heart} Kết thúc trong: <t:{endUnix}:R>")} 
-        {heart} Tổ chức bởi: <@{giveaway.HostId}>
+        var winnerIds = giveaway.WinnerIds ?? [];
+        var roleReqs = giveaway.RoleRequirements ?? [];
 
-        {(giveaway.RoleRequirements.Length > 0 ? $"{heart} Yêu cầu vai trò: {string.Join(", ", giveaway.RoleRequirements.Select(rid => $"<@&{rid}>"))}\n" : "")}
-        """.Trim();
+        var description = $"""
+    {(ended ? "" : header)}
+    {(ended ? $"{heart} Người chiến thắng: {string.Join(" ", winnerIds.Select(u => $"<@{u}>"))}" : $"{heart} Kết thúc trong: <t:{endUnix}:R>")} 
+    {heart} Tổ chức bởi: <@{giveaway.HostId}>
+
+    {(roleReqs.Length > 0 ? $"{heart} Yêu cầu vai trò: {string.Join(", ", roleReqs.Select(rid => $"<@&{rid}>"))}\n" : "")}
+    """.Trim();
 
         var embed = _client.Embed()
             .WithTitle(giveaway.Prize)
