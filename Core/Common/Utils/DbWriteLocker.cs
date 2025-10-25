@@ -13,16 +13,10 @@ public interface IDbWriteLocker
 }
 
 [RegisterService(ServiceLifetime.Singleton, serviceType: typeof(IDbWriteLocker))]
-public class DbWriteLocker : IDbWriteLocker, IDisposable
+public class DbWriteLocker(IServiceScopeFactory scopeFactory) : IDbWriteLocker, IDisposable
 {
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IServiceScopeFactory _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
     private readonly SemaphoreSlim _semaphore = new(1, 1);
-    private bool _disposed;
-
-    public DbWriteLocker(IServiceScopeFactory scopeFactory)
-    {
-        _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
-    }
 
     public async Task RunAsync(Func<AppDatabase, Task> action)
     {
@@ -106,10 +100,5 @@ public class DbWriteLocker : IDbWriteLocker, IDisposable
         }
     }
 
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _semaphore?.Dispose();
-        _disposed = true;
-    }
+    public void Dispose() => GC.SuppressFinalize(this);
 }

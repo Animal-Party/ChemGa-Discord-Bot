@@ -9,8 +9,7 @@ public static class RequireExHelpers
     {
         try
         {
-            var bypass = services?.GetService(typeof(Services.IBypassService)) as Services.IBypassService;
-            if (bypass != null)
+            if (services?.GetService(typeof(Services.IBypassService)) is Services.IBypassService bypass)
             {
                 var bypassed = bypass.IsBypassedAsync(userId).GetAwaiter().GetResult();
                 return bypassed;

@@ -1,7 +1,6 @@
 using ChemGa.Core.Common.Attributes;
 using ChemGa.Database;
 using ChemGa.Database.Models;
-using ChemGa.Interfaces;
 using Discord;
 using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
@@ -11,13 +10,11 @@ using ChemGa.Core.Common.Utils;
 namespace ChemGa.Core.Commands.Modules.Giveaways;
 
 [RegisterService(Microsoft.Extensions.DependencyInjection.ServiceLifetime.Scoped, serviceType: typeof(GiveawayService))]
-public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWriteLocker dbWriteLocker) : IService
+public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWriteLocker dbWriteLocker)
 {
     private readonly AppDatabase _db = db;
     private readonly DiscordSocketClient _client = _client;
     private readonly IDbWriteLocker _dbWriteLocker = dbWriteLocker;
-    private CancellationTokenSource? _cts;
-    private Task? _worker;
     private readonly DbSet<Giveaway> _giveaways = db.GetModel<Giveaway>();
     /// <summary>
     /// Lấy danh sách giveaway còn hoạt động (chưa hết hạn).
@@ -114,6 +111,7 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
     public async Task EndGiveawayAsync(Giveaway giveaway, bool isReroll = false)
     {
         IMessage? message = null;
+
         try
         {
             if (await _client.Rest.GetChannelAsync(giveaway.ChannelId) is IMessageChannel channel)
@@ -199,16 +197,10 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
         giveaway.ParticipantIds = [.. participants.Distinct()];
 
         var winners = DrawWinnersFromList(giveaway.ParticipantIds, giveaway.WinnerCount);
+
         giveaway.WinnerIds = [.. winners.Distinct()];
-
-        await _dbWriteLocker.RunAsync(async scopedDb =>
-        {
-            var set = scopedDb.GetModel<Giveaway>();
-            set.Update(giveaway);
-            await scopedDb.SaveChangesAsync().ConfigureAwait(false);
-        }).ConfigureAwait(false);
-
         giveaway.IsEnded = true;
+
         await _dbWriteLocker.RunAsync(async scopedDb =>
         {
             var set = scopedDb.GetModel<Giveaway>();
@@ -423,73 +415,38 @@ public class GiveawayService(AppDatabase db, DiscordSocketClient _client, IDbWri
         catch { /* ignore reaction failures */ }
     }
 
-    private async Task ReCheckGiveaway(CancellationToken token)
+    [CronJob("*/10 * * * * *")]
+    public async Task Cron_EndGiveawaysAsync(CancellationToken cancellationToken)
     {
-        var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
-        const int concurrency = 3;
-        while (await timer.WaitForNextTickAsync(token))
+        var endedGiveaways = GetEndedGiveaways()
+            .OrderBy(g => g.EndAt)
+            .Take(20)
+            .ToList();
+
+        if (endedGiveaways.Count == 0)
+            return;
+
+        Log.Information("Processing {Count} ended giveaways in parallel...", endedGiveaways.Count);
+
+        await Parallel.ForEachAsync(endedGiveaways, new ParallelOptions
         {
-            var endedGiveaways = GetEndedGiveaways()
-                .OrderBy(g => g.EndAt)
-                .Take(20)
-                .ToList();
-
-            if (endedGiveaways.Count == 0) continue;
-
-            var semaphore = new SemaphoreSlim(concurrency);
-            var tasks = new List<Task>();
-
-            foreach (var giveaway in endedGiveaways)
-            {
-                await semaphore.WaitAsync(token).ConfigureAwait(false);
-                tasks.Add(Task.Run(async () =>
-                {
-                    try
-                    {
-
-                        await EndGiveawayAsync(giveaway).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Warning(ex, "Error processing ended giveaway {GiveawayId}", giveaway.Id);
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                }, token));
-            }
-
+            MaxDegreeOfParallelism = 3,
+            CancellationToken = cancellationToken
+        },
+        async (giveaway, ct) =>
+        {
             try
             {
-                await Task.WhenAll(tasks).ConfigureAwait(false);
+                await EndGiveawayAsync(giveaway).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) { }
-        }
-    }
-
-    public Task StartAsync()
-    {
-        _cts = new CancellationTokenSource();
-        _worker = ReCheckGiveaway(_cts.Token);
-        return Task.CompletedTask;
-    }
-
-    public async Task StopAsync()
-    {
-        if (_cts != null)
-        {
-            _cts.Cancel();
-            if (_worker != null)
+            catch (Exception ex)
             {
-                await _worker;
+                Log.Warning(ex, "Error processing ended giveaway {GiveawayId}", giveaway.Id);
             }
-            _cts.Dispose();
-            _cts = null;
-        }
-
-        await _dbWriteLocker.RunAsync(scopedDb => scopedDb.SaveChangesAsync()).ConfigureAwait(false);
+        });
     }
+
+
 
     internal async Task<ulong[]> RerollGiveawayAsync(ulong messageId)
     {
